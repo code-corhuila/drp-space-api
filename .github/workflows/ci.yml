@@ -18,3 +18,5 @@ jobs:
         with:
           go-version: "1.23"
       - run: go test ./...
+      - name: No Postgres container in this repo
+        run: "! grep -E 'image: postgres' deploy/compose.yml Dockerfile"
