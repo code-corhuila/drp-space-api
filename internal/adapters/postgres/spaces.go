@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/code-corhuila/drp-space-api/internal/app"
 	"github.com/code-corhuila/drp-space-api/internal/domain"
@@ -44,6 +45,48 @@ FROM spaces WHERE id = $1 AND deleted_at IS NULL`, id)
 		return domain.Space{}, app.ErrNotFound
 	}
 	return got, err
+}
+
+func (s *Spaces) Save(ctx context.Context, sp domain.Space) error {
+	_, err := s.DB.ExecContext(ctx, `
+INSERT INTO spaces (id, name, kind, description, capacity, active, created_at, updated_at, deleted_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)`,
+		sp.ID, sp.Name, string(sp.Kind), sp.Description, sp.Capacity, sp.Active, sp.CreatedAt, sp.UpdatedAt)
+	return err
+}
+
+func (s *Spaces) ListBlocks(ctx context.Context, spaceID string) ([]domain.BlockedPeriod, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+SELECT id, space_id, start_at, end_at, COALESCE(reason, ''), created_at
+FROM blocked_periods WHERE space_id = $1`, spaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.BlockedPeriod{}
+	for rows.Next() {
+		var b domain.BlockedPeriod
+		var start, end time.Time
+		if err := rows.Scan(&b.ID, &b.SpaceID, &start, &end, &b.Reason, &b.CreatedAt); err != nil {
+			return nil, err
+		}
+		p, err := domain.NewDateTimeRange(start.UTC(), end.UTC())
+		if err != nil {
+			return nil, err
+		}
+		b.Period = p
+		b.CreatedAt = b.CreatedAt.UTC()
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+func (s *Spaces) SaveBlock(ctx context.Context, b domain.BlockedPeriod) error {
+	_, err := s.DB.ExecContext(ctx, `
+INSERT INTO blocked_periods (id, space_id, start_at, end_at, reason, created_at)
+VALUES ($1, $2, $3, $4, $5, $6)`,
+		b.ID, b.SpaceID, b.Period.Start, b.Period.End, b.Reason, b.CreatedAt)
+	return err
 }
 
 type scanner interface {

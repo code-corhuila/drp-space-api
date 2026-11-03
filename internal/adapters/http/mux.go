@@ -18,7 +18,10 @@ func NewMux(d Deps) http.Handler {
 	if d.Tokens != nil {
 		auth := RequireBearer(d.Tokens)
 		mux.Handle("GET /api/v1/spaces", auth(ListSpaces(d.Catalog)))
+		mux.Handle("POST /api/v1/spaces", auth(RequireAdmin(CreateSpace(d.Catalog))))
 		mux.Handle("GET /api/v1/spaces/{spaceId}", auth(GetSpace(d.Catalog)))
+		mux.Handle("GET /api/v1/spaces/{spaceId}/blocks", auth(RequireAdmin(ListBlocks(d.Catalog))))
+		mux.Handle("POST /api/v1/spaces/{spaceId}/blocks", auth(RequireAdmin(CreateBlock(d.Catalog))))
 	}
 	mux.Handle("/", NotFoundHandler())
 	return WithCorrelation(stripSpoofedIdentity(mux))
