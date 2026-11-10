@@ -250,6 +250,24 @@ func TestGetInactiveSpaceStillReturned(t *testing.T) {
 	}
 }
 
+func TestUserCannotPostBlockIs403(t *testing.T) {
+	mux, keys := spaceMux(t)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	norte := "11111111-1111-1111-1111-111111111111"
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/spaces/"+norte+"/blocks", strings.NewReader(`{"startAt":"2020-01-01T08:00:00Z","endAt":"2020-01-01T10:00:00Z"}`))
+	req.Header.Set("Authorization", keys.bearer(t))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+}
+
 func TestCreateSpaceUserIs403(t *testing.T) {
 	mux, keys := spaceMux(t)
 	srv := httptest.NewServer(mux)
