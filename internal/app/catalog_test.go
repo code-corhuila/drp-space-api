@@ -23,6 +23,12 @@ func (s stubSpaces) FindByID(_ context.Context, id string) (domain.Space, error)
 	return domain.Space{}, ErrNotFound
 }
 
+func (s stubSpaces) Save(context.Context, domain.Space) error { return nil }
+func (s stubSpaces) ListBlocks(context.Context, string) ([]domain.BlockedPeriod, error) {
+	return nil, nil
+}
+func (s stubSpaces) SaveBlock(context.Context, domain.BlockedPeriod) error { return nil }
+
 func TestCatalogListOrderAndEmptyPage(t *testing.T) {
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	norte, _ := domain.NewSpace("11111111-1111-1111-1111-111111111111", "Sala Norte", "MEETING_ROOM", "", 8, now)

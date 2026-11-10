@@ -12,7 +12,7 @@ type ctxKey string
 
 const (
 	correlationKey ctxKey = "traceId"
-	subjectKey     ctxKey = "sub"
+	principalKey   ctxKey = "principal"
 )
 
 func WithCorrelation(next http.Handler) http.Handler {

@@ -28,17 +28,34 @@ func RequireBearer(tokens app.TokenVerifier) func(http.Handler) http.Handler {
 				writeErr(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "Token de autenticación requerido", nil)
 				return
 			}
-			sub, err := tokens.Parse(r.Context(), raw)
+			p, err := tokens.Parse(r.Context(), raw)
 			if errors.Is(err, app.ErrJWKSUnavailable) {
 				writeErr(w, r, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "No se pudo validar el token", nil)
 				return
 			}
-			if err != nil || sub == "" {
+			if err != nil || p.Subject == "" {
 				writeErr(w, r, http.StatusUnauthorized, "UNAUTHORIZED", "Token de autenticación requerido", nil)
 				return
 			}
-			ctx := context.WithValue(r.Context(), subjectKey, sub)
+			ctx := context.WithValue(r.Context(), principalKey, p)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func RequireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !principalFrom(r).Admin() {
+			writeErr(w, r, http.StatusForbidden, "FORBIDDEN", "No tienes permiso para esta operación", nil)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func principalFrom(r *http.Request) app.Principal {
+	if v, ok := r.Context().Value(principalKey).(app.Principal); ok {
+		return v
+	}
+	return app.Principal{}
 }

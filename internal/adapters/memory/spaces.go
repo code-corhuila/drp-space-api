@@ -11,8 +11,9 @@ import (
 
 // Spaces is an in-memory catalog. Flyway persistence is a later feat.
 type Spaces struct {
-	mu   sync.RWMutex
-	byID map[string]domain.Space
+	mu     sync.RWMutex
+	byID   map[string]domain.Space
+	blocks []domain.BlockedPeriod
 }
 
 func Corte2() (*Spaces, error) {
@@ -59,4 +60,33 @@ func (r *Spaces) FindByID(_ context.Context, id string) (domain.Space, error) {
 		return domain.Space{}, app.ErrNotFound
 	}
 	return s, nil
+}
+
+func (r *Spaces) Save(_ context.Context, s domain.Space) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.byID == nil {
+		r.byID = map[string]domain.Space{}
+	}
+	r.byID[s.ID] = s
+	return nil
+}
+
+func (r *Spaces) ListBlocks(_ context.Context, spaceID string) ([]domain.BlockedPeriod, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := []domain.BlockedPeriod{}
+	for _, b := range r.blocks {
+		if b.SpaceID == spaceID {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+func (r *Spaces) SaveBlock(_ context.Context, b domain.BlockedPeriod) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.blocks = append(r.blocks, b)
+	return nil
 }

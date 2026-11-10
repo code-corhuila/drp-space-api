@@ -70,7 +70,7 @@ func (h HTTPJWKS) JWKS(ctx context.Context) (map[string]any, error) {
 	return doc, nil
 }
 
-func (v *Verifier) Parse(ctx context.Context, raw string) (string, error) {
+func (v *Verifier) Parse(ctx context.Context, raw string) (app.Principal, error) {
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
 		jwt.WithLeeway(v.skew),
@@ -89,22 +89,41 @@ func (v *Verifier) Parse(ctx context.Context, raw string) (string, error) {
 	})
 	if err != nil {
 		if errors.Is(err, app.ErrJWKSUnavailable) {
-			return "", app.ErrJWKSUnavailable
+			return app.Principal{}, app.ErrJWKSUnavailable
 		}
-		return "", app.ErrUnauthorized
+		return app.Principal{}, app.ErrUnauthorized
 	}
 	if !tok.Valid {
-		return "", app.ErrUnauthorized
+		return app.Principal{}, app.ErrUnauthorized
 	}
 	claims, ok := tok.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", app.ErrUnauthorized
+		return app.Principal{}, app.ErrUnauthorized
 	}
 	sub, err := claims.GetSubject()
 	if err != nil || sub == "" {
-		return "", app.ErrUnauthorized
+		return app.Principal{}, app.ErrUnauthorized
 	}
-	return sub, nil
+	return app.Principal{Subject: sub, Role: claimRole(claims)}, nil
+}
+
+func claimRole(claims jwt.MapClaims) string {
+	if r, ok := claims["role"].(string); ok && (r == "USER" || r == "ADMIN") {
+		return r
+	}
+	switch roles := claims["roles"].(type) {
+	case []any:
+		if len(roles) > 0 {
+			if s, ok := roles[0].(string); ok && (s == "USER" || s == "ADMIN") {
+				return s
+			}
+		}
+	case []string:
+		if len(roles) > 0 && (roles[0] == "USER" || roles[0] == "ADMIN") {
+			return roles[0]
+		}
+	}
+	return "USER"
 }
 
 func (v *Verifier) keyFor(ctx context.Context, kid string) (*rsa.PublicKey, error) {

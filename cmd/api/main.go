@@ -8,6 +8,7 @@ import (
 
 	httpadapter "github.com/code-corhuila/drp-space-api/internal/adapters/http"
 	"github.com/code-corhuila/drp-space-api/internal/adapters/memory"
+	"github.com/code-corhuila/drp-space-api/internal/adapters/postgres"
 	"github.com/code-corhuila/drp-space-api/internal/adapters/security"
 	"github.com/code-corhuila/drp-space-api/internal/app"
 )
@@ -26,9 +27,22 @@ func main() {
 		jwksURL = "http://identity-api:8081/api/v1/auth/jwks"
 	}
 
-	spaces, err := memory.Corte2()
-	if err != nil {
-		log.Fatal(err)
+	var spaces app.SpaceRepository
+	store := "memory catalog"
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		db, err := postgres.Open(dsn)
+		if err != nil {
+			log.Fatal(err)
+		}
+		db.SetMaxOpenConns(8)
+		spaces = postgres.NewSpaces(db)
+		store = "postgres space schema"
+	} else {
+		seed, err := memory.Corte2()
+		if err != nil {
+			log.Fatal(err)
+		}
+		spaces = seed
 	}
 	tokens := security.NewVerifier(security.HTTPJWKS{
 		URL: jwksURL,
@@ -43,7 +57,7 @@ func main() {
 		Tokens:  tokens,
 	})
 
-	log.Printf("drp-space-api listening on %s (memory catalog; JWKS %s; no DDL in this repo)", addr, jwksURL)
+	log.Printf("drp-space-api listening on %s (%s; JWKS %s; no DDL in this repo)", addr, store, jwksURL)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,11 +44,16 @@ func spaceMux(t *testing.T) (http.Handler, testIssuer) {
 }
 
 func (i testIssuer) bearer(t *testing.T) string {
+	return i.bearerRole(t, "USER")
+}
+
+func (i testIssuer) bearerRole(t *testing.T, role string) string {
 	t.Helper()
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"sub": "44444444-4444-4444-4444-444444444444",
-		"iat": time.Now().UTC().Unix(),
-		"exp": time.Now().UTC().Add(time.Hour).Unix(),
+		"sub":  "44444444-4444-4444-4444-444444444444",
+		"role": role,
+		"iat":  time.Now().UTC().Unix(),
+		"exp":  time.Now().UTC().Add(time.Hour).Unix(),
 	})
 	tok.Header["kid"] = testKID
 	signed, err := tok.SignedString(i.priv)
@@ -241,5 +247,117 @@ func TestGetInactiveSpaceStillReturned(t *testing.T) {
 	}
 	if dto.Available != false || dto.Name != "Oficina Cerrada" {
 		t.Fatalf("dto %+v", dto)
+	}
+}
+
+func TestCreateSpaceUserIs403(t *testing.T) {
+	mux, keys := spaceMux(t)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/spaces", strings.NewReader(`{"name":"Sala Sur","kind":"MEETING_ROOM","capacity":4}`))
+	req.Header.Set("Authorization", keys.bearer(t))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+}
+
+func TestCreateSpaceAdmin201AndDuplicate422(t *testing.T) {
+	mux, keys := spaceMux(t)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	body := `{"name":"Sala Sur","kind":"MEETING_ROOM","capacity":4}`
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/spaces", strings.NewReader(body))
+	req.Header.Set("Authorization", keys.bearerRole(t, "ADMIN"))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var dto spaceDTO
+	if err := json.NewDecoder(res.Body).Decode(&dto); err != nil {
+		t.Fatal(err)
+	}
+	if dto.Available != true || dto.Name != "Sala Sur" || dto.Description != "" {
+		t.Fatalf("dto %+v", dto)
+	}
+	req2, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/spaces", strings.NewReader(`{"name":"sala sur","kind":"WORKSTATION","capacity":1}`))
+	req2.Header.Set("Authorization", keys.bearerRole(t, "ADMIN"))
+	req2.Header.Set("Content-Type", "application/json")
+	res2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	if res2.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("dup %d", res2.StatusCode)
+	}
+}
+
+func TestBlockPeriodPastAndOverlapAccepted(t *testing.T) {
+	mux, keys := spaceMux(t)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	norte := "11111111-1111-1111-1111-111111111111"
+	first := `{"startAt":"2020-01-01T08:00:00Z","endAt":"2020-01-01T10:00:00Z","reason":"mantenimiento"}`
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/spaces/"+norte+"/blocks", strings.NewReader(first))
+	req.Header.Set("Authorization", keys.bearerRole(t, "ADMIN"))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("first %d", res.StatusCode)
+	}
+	overlap := `{"startAt":"2020-01-01T09:00:00Z","endAt":"2020-01-01T11:00:00Z"}`
+	req2, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/spaces/"+norte+"/blocks", strings.NewReader(overlap))
+	req2.Header.Set("Authorization", keys.bearerRole(t, "ADMIN"))
+	req2.Header.Set("Content-Type", "application/json")
+	res2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	if res2.StatusCode != http.StatusCreated {
+		t.Fatalf("overlap %d", res2.StatusCode)
+	}
+	zero := `{"startAt":"2020-01-01T08:00:00Z","endAt":"2020-01-01T08:00:00Z"}`
+	req3, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/spaces/"+norte+"/blocks", strings.NewReader(zero))
+	req3.Header.Set("Authorization", keys.bearerRole(t, "ADMIN"))
+	req3.Header.Set("Content-Type", "application/json")
+	res3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res3.Body.Close()
+	if res3.StatusCode != http.StatusBadRequest {
+		t.Fatalf("zero %d", res3.StatusCode)
+	}
+}
+
+func TestListBlocksMissingSpaceIs404(t *testing.T) {
+	mux, keys := spaceMux(t)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/spaces/99999999-9999-9999-9999-999999999999/blocks", nil)
+	req.Header.Set("Authorization", keys.bearerRole(t, "ADMIN"))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("status %d", res.StatusCode)
 	}
 }
