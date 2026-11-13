@@ -346,6 +346,51 @@ func TestBlockPeriodPastAndOverlapAccepted(t *testing.T) {
 	}
 }
 
+func TestListLimitOutOfRangeIs400(t *testing.T) {
+	mux, keys := spaceMux(t)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	for _, raw := range []string{"0", "101"} {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/spaces?limit="+raw, nil)
+		req.Header.Set("Authorization", keys.bearer(t))
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body errorBody
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest || body.Error != "VALIDATION_ERROR" {
+			t.Fatalf("limit=%s status %d body %+v", raw, res.StatusCode, body)
+		}
+	}
+}
+
+func TestListFarPageIs200Empty(t *testing.T) {
+	mux, keys := spaceMux(t)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/spaces?page=9999", nil)
+	req.Header.Set("Authorization", keys.bearer(t))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var env listEnvelope
+	if err := json.NewDecoder(res.Body).Decode(&env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Data == nil || len(env.Data) != 0 || env.Meta.Page != 9999 {
+		t.Fatalf("envelope %+v", env)
+	}
+}
+
 func TestListBlocksMissingSpaceIs404(t *testing.T) {
 	mux, keys := spaceMux(t)
 	srv := httptest.NewServer(mux)
