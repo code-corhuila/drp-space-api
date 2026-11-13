@@ -7,11 +7,12 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    container_name: drp-space-api
+    container_name: drp-space-api-${DRP_ENV:-dev}
     environment:
       HTTP_ADDR: ${HTTP_ADDR:-:8082}
       SERVICE_NAME: ${SERVICE_NAME:-space-service}
       IDENTITY_JWKS_URL: ${IDENTITY_JWKS_URL:-http://identity-api:8081/api/v1/auth/jwks}
+      DATABASE_URL: ${DATABASE_URL:-postgres://space_app:${SPACE_APP_PASSWORD:-change-me-space}@postgres:5432/drp?sslmode=disable}
     ports:
       - "${HTTP_PORT:-8082}:8082"
     networks:
@@ -19,5 +20,5 @@ services:
 
 networks:
   pg:
-    name: ${SPACE_API_NETWORK:-drp-dev_default}
+    name: ${SPACE_API_NETWORK:-${COMPOSE_PROJECT_NAME:-drp-dev}_default}
     external: true
